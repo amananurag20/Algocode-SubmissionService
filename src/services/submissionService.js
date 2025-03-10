@@ -1,3 +1,4 @@
+const { fetchProblemDetails } = require("../apis/problemAdminApi");
 const SubmissionCreationError = require("../errors/submissionCreationError");
 const SubmissionProducer = require("../producers/submissionQueueProducer");
 class SubmissionService {
@@ -11,6 +12,32 @@ class SubmissionService {
   }
 
   async addSubmission(submissionPayload) {
+    // Hit the problem admin service and fetch the problem details
+    const problemId = submissionPayload.problemId;
+
+    const problemAdminApiResponse = await fetchProblemDetails(problemId);
+
+    if (!problemAdminApiResponse) {
+      throw new SubmissionCreationError(
+        "Failed to create a submission in the repository"
+      );
+    }
+
+    const languageCodeStub = problemAdminApiResponse.data.codeStubs.find(
+      (codeStub) =>
+        codeStub.language.toLowerCase() ===
+        submissionPayload.language.toLowerCase()
+    );
+
+    console.log(languageCodeStub);
+
+    submissionPayload.code =
+      languageCodeStub.startSnippet +
+      "\n\n" +
+      submissionPayload.code +
+      "\n\n" +
+      languageCodeStub.endSnippet;
+
     const submission = await this.submissionRepository.createSubmission(
       submissionPayload
     );
@@ -21,7 +48,14 @@ class SubmissionService {
       );
     }
     console.log(submission);
-    const response = await SubmissionProducer(submission);
+    const response = await SubmissionProducer({
+      [submission._id]: {
+        code: submission.code,
+        language: submission.language,
+        inputCase: problemAdminApiResponse.data.testCases[0].input,
+        outputCase: problemAdminApiResponse.data.testCases[0].output,
+      },
+    });
     return { queueResponse: response, submission };
   }
 }
